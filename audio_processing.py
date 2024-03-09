@@ -1,21 +1,34 @@
 import numpy as np
 import librosa
+from scipy import signal
 
 def process_audio_data(data, samplerate, n_steps):
-    """
-    リアルタイムで音声データを処理し、ピッチを変更
-    :param data: 音声データのnumpy配列
-    :param samplerate: サンプリングレート
-    :param n_steps: ピッチを変更するステップ数
-    """
-    # FFT処理に必要な最小長を定義
     min_length = 2048
     
-    # 入力データが最小長に満たない場合、ゼロパディングを行う
     if len(data) < min_length:
         data = np.pad(data, (0, min_length - len(data)), 'constant')
 
-    # Librosaを使用してピッチを変更
     processed_data = librosa.effects.pitch_shift(data, sr=samplerate, n_steps=n_steps)
+
+    # ローパスフィルタでノイズ除去
+    nyquist_rate = samplerate / 2
+    low_cutoff = 4000 / nyquist_rate
+    low_filter = signal.butter(4, low_cutoff, btype='lowpass', output='sos', analog=False)
+    processed_data = signal.sosfilt(low_filter, processed_data)
+
+    nyquist_rate = samplerate / 2
+    high_cutoff = 150 / nyquist_rate
+    high_filter = signal.butter(4, high_cutoff, btype='highpass', output='sos', analog=False)
+    processed_data = signal.sosfilt(high_filter, processed_data)
+
+    processed_data = processed_data * 2
+
+    # eq_coefficientsの長さを調整
+    stft = librosa.core.stft(processed_data)
+    n_fft = stft.shape[0]
+    eq_coefficients = np.array([0.8, 1.2, 0.9, 1.1])
+    eq_coefficients = np.tile(eq_coefficients, (n_fft // len(eq_coefficients)) + 1)[:n_fft]
+
+    processed_data = librosa.core.istft(stft * eq_coefficients[:, np.newaxis])
 
     return processed_data
